@@ -55,6 +55,6 @@ __Vasco:__ Qualquer hora de Sábado. Domingo só à noite.
 
 __Isadora:__  Depende dos fins de semana mas consigo dizer facilmente durante a semana quando dá mais jeito
 
-__Pedro:__
+__Hugo:__ Só não posso nos fins de semana deste mês (posso tirar pouco tempo só para alinhar). O resto estou disponivel a qualquer hora.
 
 __Stefane:__
