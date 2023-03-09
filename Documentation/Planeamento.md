@@ -25,9 +25,9 @@ Por fim, o output desta rede será também fornecido à camada final, cujo desen
 
 
 ## Divisão da Equipa
-NN Tipificação - Filipe; Hugo
+__NN Tipificação:__ Filipe; Hugo
 
-Sentiment Analysis - Vasco; Isadora; Stefane
+__Sentiment Analysis:__ Vasco; Isadora; Stefane
 
 
 ### Blog
@@ -49,8 +49,12 @@ Porém, como será, naturalmente, difícil reunirmos sempre todos em todas as se
 
 Para conseguirmos estabelecer estas 3 janelas, ficará registado abaixo a disponibilidade de cada elemento (preenchi a minha e peço que preencham a vossa).
 
-Prata: Qualquer hora de sábado. Qualquer hora de domingo a partir das 14h30m.
-Vasco:
-Isadora: Depende dos fins de semana mas consigo dizer facilmente durante a semana quando dá mais jeito
-Hugo:
-Stefane:
+__Prata:__ Qualquer hora de sábado. Qualquer hora de domingo a partir das 14h30m.
+
+__Vasco:__
+
+__Isadora:__  Depende dos fins de semana mas consigo dizer facilmente durante a semana quando dá mais jeito
+
+__Pedro:__
+
+__Stefane:__
