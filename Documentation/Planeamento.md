@@ -51,6 +51,6 @@ Para conseguirmos estabelecer estas 3 janelas, ficará registado abaixo a dispon
 
 Prata: Qualquer hora de sábado. Qualquer hora de domingo a partir das 14h30m.
 Vasco:
-Isadora:
-Pedro:
+Isadora: Depende dos fins de semana mas consigo dizer facilmente durante a semana quando dá mais jeito
+Hugo:
 Stefane:
