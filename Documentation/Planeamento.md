@@ -51,7 +51,7 @@ Para conseguirmos estabelecer estas 3 janelas, ficará registado abaixo a dispon
 
 __Prata:__ Qualquer hora de sábado. Qualquer hora de domingo a partir das 14h30m.
 
-__Vasco:__
+__Vasco:__ Qualquer hora de Sábado. Domingo só à noite.
 
 __Isadora:__  Depende dos fins de semana mas consigo dizer facilmente durante a semana quando dá mais jeito
 
