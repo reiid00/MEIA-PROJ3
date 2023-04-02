@@ -1,2 +1,4 @@
 /SentimentAnalysis/Proj-NLTK-Transformers-Tutorial/Reviews.csv
+/SentimentAnalysis/Model/data
+/SentimentAnalysis/Model/training_data
 /UI/ticket_history.txt
