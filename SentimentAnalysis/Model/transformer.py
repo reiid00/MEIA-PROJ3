@@ -1,37 +1,37 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from torch.nn.functional import sigmoid
 from typing import Optional, Tuple
 
 class SelfAttention(nn.Module):
 
-    def __init__(self, emb_size, heads):
+    def __init__(self, emb_size, heads,device):
         super(SelfAttention, self).__init__()
         self.emb_size = emb_size
         self.heads = heads
         self.head_dim = np.floor_divide(emb_size, heads)
+        self.device = device
 
         # Verify head_dim size
         assert (np.multiply(self.head_dim, heads) == emb_size), "Embed size must be divisible by heads"
 
-        self.values = nn.Linear(self.emb_size, self.emb_size, bias=False)
-        self.keys = nn.Linear(self.emb_size, self.emb_size, bias=False)
-        self.queries = nn.Linear(self.emb_size, self.emb_size, bias=False)
+        self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.fc_out = nn.Linear(emb_size, emb_size) # should be (heads*self.head_dim, embed_size) but heads*self.head_dim should be equal to embed_size
     
     def forward(self, values, keys, queries, mask=None):
         N = queries.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1] # get len
 
-        values = self.values(values)
-        keys = self.keys(keys)
-        queries = self.queries(queries)
-
         # Split embedding into self.heads pieces
         values = values.reshape(N, value_len, self.heads, self.head_dim) # (N, values_len, heads, head_dim)
-        keys = values.reshape(N, key_len, self.heads, self.head_dim) # (N, key_len, heads, head_dim)
-        queries = values.reshape(N, query_len, self.heads, self.head_dim) # (N, query_len, heads, head_dim)
+        keys = keys.reshape(N, key_len, self.heads, self.head_dim) # (N, key_len, heads, head_dim)
+        queries = queries.reshape(N, query_len, self.heads, self.head_dim) # (N, query_len, heads, head_dim)
+
+        values = self.values(values).to(self.device)
+        keys = self.keys(keys).to(self.device)
+        queries = self.queries(queries).to(self.device)
         
         # We have:
         # queries shape: (N, query_len, heads, head_dim)
@@ -63,9 +63,9 @@ class SelfAttention(nn.Module):
 
 class TransformerBlock(nn.Module):
 
-    def __init__(self, emb_size, heads, dropout, forward_expansion):
+    def __init__(self, emb_size, heads, dropout, forward_expansion, device):
         super(TransformerBlock, self).__init__()
-        self.attention = SelfAttention(emb_size, heads)
+        self.attention = SelfAttention(emb_size, heads, device)
         self.norm1 = nn.LayerNorm(emb_size)
         self.norm2 = nn.LayerNorm(emb_size)
         self.feed_forward = nn.Sequential(
@@ -91,7 +91,7 @@ class Encoder(nn.Module):
         self.device = device
         self.word_embedding = nn.Embedding(src_vocab_size, emb_size)
         self.position_embedding = nn.Embedding(max_length, emb_size)
-        self.layers = nn.ModuleList([TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion) for _ in range(num_layers)])
+        self.layers = nn.ModuleList([TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion, device=device) for _ in range(num_layers)])
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, mask):
@@ -99,7 +99,9 @@ class Encoder(nn.Module):
         pos = torch.arange(0, seq_length).expand(N, seq_length).to(self.device)
 
         out = self.dropout(self.word_embedding(x) + self.position_embedding(pos))
-        out = [layer(out, out, out, mask) for layer in self.layers]
+        
+        for layer in self.layers:
+            out = layer(out, out, out, mask)
         
         return out
 
@@ -107,9 +109,9 @@ class DecoderBlock(nn.Module):
 
     def __init__(self, emb_size, heads, forward_expansion, dropout, device):
         super(DecoderBlock, self).__init__()
-        self.attention = SelfAttention(emb_size, heads)
+        self.attention = SelfAttention(emb_size, heads, device)
         self.norm = nn.LayerNorm(emb_size)
-        self.transformer_block = TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion)
+        self.transformer_block = TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion, device=device)
         self.dropout = nn.Dropout(dropout)
     
     def forward(self, x, value, key, src_mask, target_mask):
@@ -134,7 +136,8 @@ class Decoder(nn.Module):
         N, seq_len = x.shape
         pos = torch.arange(0, seq_len).expand(N, seq_len).to(self.device)
         x = self.dropout(self.word_embedding(x) + self.position_embedding(pos))
-        x = [layer(x,enc_out, enc_out, src_mask, target_mask) for layer in self.layers]
+        for layer in self.layers:
+            x = layer(x, enc_out, enc_out, src_mask, target_mask)
         out = self.fc_out(x)
         return out
 
@@ -213,15 +216,16 @@ class EmotionAnalysisModel(nn.Module):
 # 4. Added the BCEWithLogitsLoss loss function for multilabel classification. This loss function combines a sigmoid activation and binary cross-entropy loss, 
 # making it suitable for multilabel classification tasks
 
-class CustomTransformerForMultilabelSequenceClassification(nn.Module):
+class MultilabelSequenceClassificationTransformer(nn.Module):
     def __init__(self, src_vocab_size, num_classes, src_pad_idx, emb_size=512, num_layers=6, forward_expansion=4, heads=8, dropout=0, device='cuda', max_len=100):
-        super(CustomTransformerForMultilabelSequenceClassification, self).__init__()
+        super(MultilabelSequenceClassificationTransformer, self).__init__()
 
         self.encoder = Encoder(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len)
         self.classifier = nn.Linear(emb_size, num_classes)
         self.dropout = nn.Dropout(dropout)
         self.src_pad_idx = src_pad_idx
         self.device = device
+        self.num_classes = num_classes
 
     def make_src_mask(self, src):
         src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)  # (N, 1, 1, src_len)
