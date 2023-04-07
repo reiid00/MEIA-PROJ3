@@ -2,4 +2,5 @@
 /SentimentAnalysis/Model/data
 /SentimentAnalysis/Model/training_data
 /Typification/multi***
+/Typification/complaint_data.csv
 /UI/ticket_history.txt
