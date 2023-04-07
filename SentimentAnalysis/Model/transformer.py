@@ -9,44 +9,50 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self.emb_size = emb_size
         self.heads = heads
-        self.head_dim = np.floor_divide(emb_size, heads)
+        self.head_dim = emb_size // heads
         self.device = device
 
         # Verify head_dim size
-        assert (np.multiply(self.head_dim, heads) == emb_size), "Embed size must be divisible by heads"
+        assert (self.head_dim * heads == emb_size), "Embed size must be divisible by heads"
 
-        self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
-        self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
-        self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.values = nn.Linear(emb_size, emb_size)
+        self.keys = nn.Linear(emb_size, emb_size)
+        self.queries = nn.Linear(emb_size, emb_size)
         self.fc_out = nn.Linear(emb_size, emb_size) # should be (heads*self.head_dim, embed_size) but heads*self.head_dim should be equal to embed_size
+
+        # Initialize bias terms with zeros
+        nn.init.zeros_(self.values.bias)
+        nn.init.zeros_(self.keys.bias)
+        nn.init.zeros_(self.queries.bias)
     
     def forward(self, values, keys, queries, mask=None):
         N = queries.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1] # get len
 
+        values = self.values(values)
+        keys = self.keys(keys)
+        queries = self.queries(queries)
         # Split embedding into self.heads pieces
         values = values.reshape(N, value_len, self.heads, self.head_dim) # (N, values_len, heads, head_dim)
         keys = keys.reshape(N, key_len, self.heads, self.head_dim) # (N, key_len, heads, head_dim)
         queries = queries.reshape(N, query_len, self.heads, self.head_dim) # (N, query_len, heads, head_dim)
-
-        values = self.values(values).to(self.device)
-        keys = self.keys(keys).to(self.device)
-        queries = self.queries(queries).to(self.device)
         
         # We have:
         # queries shape: (N, query_len, heads, head_dim)
         # keys shape: (N, key_len, heads, head_dim)
         # We want
         # energy shape: (N, heads, query_len, key_len)
-        energy = torch.einsum('nqhd,nkhd->nhqk',[queries, keys]) # QK.T ( part of attention )
-
+        energy = torch.einsum("nqhd,nkhd->nhqk", [queries, keys]) # QK.T ( part of attention )
+        #print("Energy before mask output:", has_nan_or_inf(energy))
         if mask is not None:
             # Upper left triangle is being changed to 0s in order to prevent insight of the following words / tokens and try to predict them
-            energy = energy.masked_fill(mask==0, float('-inf'))
+            energy = energy.masked_fill(mask == 0, float("-1e20"))
+            #print("Energy after mask output:", has_nan_or_inf(energy))
         
         # Basically (QK.T(energy) / emb_size(dk) ** 0.5 )
-        attention = torch.softmax(energy/np.sqrt(self.emb_size), dim = 3) # Normalizing across key_len
+        attention = torch.softmax(energy / (self.emb_size ** (1 / 2)), dim=3) # Normalizing across key_len
 
+        #print("Attention output:", has_nan_or_inf(attention))
         # We have:
         # attention shape: (N, heads, query_len, key_len)
         # values shape: (N, values_len, heads, head_dim)
@@ -54,9 +60,10 @@ class SelfAttention(nn.Module):
         # output shape : (N, query_len, heads, head_dim)
         # After einsum
         # Flatten the last two dimensions
-        out = torch.einsum('nhql,nlhd->nqhd',[attention, values]).reshape(
-            N, query_len, self.heads*self.head_dim
+        out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
+            N, query_len, self.heads * self.head_dim
         )
+        #print("Output after einsum:", has_nan_or_inf(out))
 
         out = self.fc_out(out)
         return out
@@ -222,25 +229,47 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
 
         self.encoder = Encoder(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len)
         self.classifier = nn.Linear(emb_size, num_classes)
+        self.pre_classifier = nn.Linear(emb_size, emb_size)
         self.dropout = nn.Dropout(dropout)
         self.src_pad_idx = src_pad_idx
         self.device = device
         self.num_classes = num_classes
+        self._reset_parameters()
+        torch.autograd.set_detect_anomaly(True)
+    
+    def _reset_parameters(self):
+        for name, p in self.named_parameters():
+            if 'weight' in name and p.dim() > 1:
+                fan_in = p.size(-1)
+                nn.init.normal_(p, mean=0, std=np.sqrt(1 / fan_in))
+            elif 'bias' in name:
+                nn.init.zeros_(p)
 
     def make_src_mask(self, src):
         src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)  # (N, 1, 1, src_len)
         return src_mask.to(self.device)
 
     def forward(self, src: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
+        #assert not has_nan_or_inf(src.flatten()), "Input IDs contain NaN or infinity values."
+        #assert not has_nan_or_inf(labels), "Input IDs contain NaN or infinity values."
         src_mask = self.make_src_mask(src)
+        #print("Src Mask:", has_nan_or_inf(src_mask))
         enc_src = self.encoder(src, src_mask)
+        #print("Encoder output:", has_nan_or_inf(enc_src))
         enc_src_mean = enc_src.mean(dim=1)
-        pooled_output = self.dropout(enc_src_mean)
-        logits = self.classifier(pooled_output)
+        pooled_output = self.pre_classifier(enc_src_mean)  # (bs, dim)
+        pooled_output = nn.ReLU()(pooled_output)  # (bs, dim)
+        pooled_output = self.dropout(pooled_output)  # (bs, dim)
+        #print("Pooled output:", has_nan_or_inf(pooled_output))
+        logits = self.classifier(pooled_output)  # (bs, num_labels)
+        #print("Logits output:", has_nan_or_inf(logits))
 
         loss = None
         if labels is not None:
             loss_fct = torch.nn.BCEWithLogitsLoss()
-            loss = loss_fct(logits.view(-1, self.num_classes), labels.float().view(-1, self.num_classes))
+            loss = loss_fct(logits, labels.float())
 
         return (loss, logits)
+    
+def has_nan_or_inf(tensor):
+    return torch.isnan(tensor.detach()).any() or torch.isinf(tensor.detach()).any()
