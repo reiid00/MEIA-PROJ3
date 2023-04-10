@@ -288,19 +288,32 @@ class EmotionAnalysisModel(nn.Module):
     def __init__(self, src_vocab_size, num_classes, src_pad_idx, emb_size=512, num_layers=6, forward_expansion=4, heads=8, dropout=0, device='cuda', max_len=100):
         super(EmotionAnalysisModel, self).__init__()
 
+        # Instantiate an Encoder to process the input sequence
         self.encoder = Encoder(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len)
+
+        # Add a fully connected layer to map the Encoder output to the number of emotion classes
         self.fc_out = nn.Linear(emb_size, num_classes)
+
+        # Store padding index and device for mask creation
         self.src_pad_idx = src_pad_idx
         self.device = device
 
+    # Create a source mask for the Encoder to ignore padding tokens
     def make_src_mask(self, src):
         src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)  # (N, 1, 1, src_len)
         return src_mask.to(self.device)
 
     def forward(self, src):
+        # Create a mask for the input sequence
         src_mask = self.make_src_mask(src)
+
+        # Pass the input sequence through the Encoder
         enc_src = self.encoder(src, src_mask)
+
+        # Calculate the mean of the Encoder output along the sequence dimension
         enc_src_mean = enc_src.mean(dim=1)
+
+        # Pass the mean vector through the fully connected layer to obtain the final output
         out = self.fc_out(enc_src_mean)
         return out
 
@@ -318,17 +331,33 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
     def __init__(self, src_vocab_size, num_classes, src_pad_idx, emb_size=512, num_layers=6, forward_expansion=4, heads=8, dropout=0, device='cuda', max_len=100):
         super(MultilabelSequenceClassificationTransformer, self).__init__()
 
+        
+
+        # Instantiate an Encoder to process the input sequence
         self.encoder = Encoder(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len)
+
+        # Instantiate an EmotionFeatureExtractor to extract emotion features from the encoded sequence
         self.emotion_extractor = EmotionFeatureExtractor(emb_size)
+
+        # Add a fully connected layer to map the concatenated features to the number of classes
         self.classifier = nn.Linear(emb_size + 1, num_classes)
+
+        # Add a pre-classifier fully connected layer to transform encoded sequence representation
         self.pre_classifier = nn.Linear(emb_size, emb_size)
+
+        # Add a dropout layer for regularization
         self.dropout = nn.Dropout(dropout)
+
+        # Store padding index, device, and number of classes for mask creation and other uses
         self.src_pad_idx = src_pad_idx
         self.device = device
+
+        # Reset parameters and enable anomaly detection for debugging
         self.num_classes = num_classes
         self._reset_parameters()
         torch.autograd.set_detect_anomaly(True)
     
+    # Initialize weights and biases with appropriate initial values
     def _reset_parameters(self):
         for name, p in self.named_parameters():
             if 'weight' in name and p.dim() > 1:
@@ -337,6 +366,7 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
             elif 'bias' in name:
                 nn.init.zeros_(p)
 
+    # Create a source mask for the Encoder to ignore padding tokens
     def make_src_mask(self, src):
         src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)  # (N, 1, 1, src_len)
         return src_mask.to(self.device)
@@ -344,20 +374,37 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
     def forward(self, src: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
         #assert not has_nan_or_inf(src.flatten()), "Input IDs contain NaN or infinity values."
         #assert not has_nan_or_inf(labels), "Input IDs contain NaN or infinity values."
+
+        # Create a mask for the input sequence
         src_mask = self.make_src_mask(src)
         #print("Src Mask:", has_nan_or_inf(src_mask))
+
+        # Pass the input sequence through the Encoder
         enc_src = self.encoder(src, src_mask)
         #print("Encoder output:", has_nan_or_inf(enc_src))
+
+        # Calculate the mean of the Encoder output along the sequence dimension
         enc_src_mean = enc_src.mean(dim=1)
+
+        # Extract sentiment scores using the EmotionFeatureExtractor
         sentiment_scores = self.emotion_extractor(enc_src_mean)
+
+        # Transform the mean vector using the pre-classifier layer and apply ReLU activation
         pooled_output = self.pre_classifier(enc_src_mean)  # (bs, dim)
         pooled_output = nn.ReLU()(pooled_output)  # (bs, dim)
+
+        # Apply dropout for regularization
         pooled_output = self.dropout(pooled_output)  # (bs, dim)
         #print("Pooled output:", has_nan_or_inf(pooled_output))
+
+        # Concatenate the pooled output with the sentiment scores
         pooled_output = torch.cat((pooled_output, sentiment_scores), dim=1) # Add sentiment scores to the pooled output
+
+        # Pass the concatenated features through the classifier layer to obtain the final logits
         logits = self.classifier(pooled_output)  # (bs, num_labels)
         #print("Logits output:", has_nan_or_inf(logits))
 
+        # Calculate the loss if labels are provided
         loss = None
         if labels is not None:
             loss_fct = torch.nn.BCEWithLogitsLoss()
@@ -366,8 +413,18 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
         return (loss, logits)
     
 
+### ------------- TRANSFORMER WITH LOCAL SELF-ATTENTION --------------- ###
+
 #  Attention is limited to a fixed-sized window around the current position.
 #  Can help the model focus on local patterns, which might be relevant to emotion analysis.
+
+# Explanation:
+
+# LocalSelfAttention is a specialized attention mechanism designed to focus on a limited context in the input sequence. 
+# It restricts the attention to a local window of tokens around the current token, 
+# reducing the computational cost and promoting better handling of long sequences.
+# By focusing on a smaller range of tokens, the model is less likely to be influenced by irrelevant information, 
+# which can help improve its performance in certain tasks, like in this case, emotional analysis.
 class LocalSelfAttention(nn.Module):
     def __init__(self, emb_size, heads, device, k=16):
         super(LocalSelfAttention, self).__init__()
@@ -494,7 +551,6 @@ class EncoderLocalAttention(nn.Module):
 class MultilabelLocalAttentionSequenceClassificationTransformer(nn.Module):
     def __init__(self, src_vocab_size, num_classes, src_pad_idx, emb_size=512, num_layers=6, forward_expansion=4, heads=8, dropout=0, device='cuda', max_len=100,k=16):
         super(MultilabelLocalAttentionSequenceClassificationTransformer, self).__init__()
-
         self.encoder = EncoderLocalAttention(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len,k)
         self.emotion_extractor = EmotionFeatureExtractor(emb_size)
         self.classifier = nn.Linear(emb_size + 1, num_classes)
