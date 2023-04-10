@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 # Define a SelfAttention class
 class SelfAttention(nn.Module):
 
-    # Initialize the class with necessary parameters
+
     def __init__(self, emb_size, heads):
         super(SelfAttention, self).__init__()
         self.emb_size = emb_size
@@ -79,11 +79,10 @@ class SelfAttention(nn.Module):
 # Define a TransformerBlock class
 class TransformerBlock(nn.Module):
 
-     # Initialize the class with necessary parameters
-    def __init__(self, emb_size, heads, dropout, forward_expansion, device):
+    def __init__(self, emb_size, heads, dropout, forward_expansion):
         super(TransformerBlock, self).__init__()
         # Instantiate a SelfAttention layer to model relationships between tokens in the sequence
-        self.attention = SelfAttention(emb_size, heads, device)
+        self.attention = SelfAttention(emb_size, heads)
 
         # Add LayerNorm layers for input stabilization and improving training efficiency
         self.norm1 = nn.LayerNorm(emb_size)
@@ -115,63 +114,120 @@ class TransformerBlock(nn.Module):
         
         return out
 
-
+# Define an Encoder class
 class Encoder(nn.Module):
+
 
     def __init__(self, src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_length):
         super(Encoder,self).__init__()
         self.emb_size = emb_size
         self.device = device
+
+        # Create word embeddings to map token indices to continuous vectors
         self.word_embedding = nn.Embedding(src_vocab_size, emb_size)
+
+        # Create position embeddings to incorporate positional information into the model
         self.position_embedding = nn.Embedding(max_length, emb_size)
-        self.layers = nn.ModuleList([TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion, device=device) for _ in range(num_layers)])
+
+        # Instantiate multiple TransformerBlocks in a ModuleList for the desired depth
+        self.layers = nn.ModuleList([
+            TransformerBlock(
+                emb_size, heads, dropout=dropout,
+                forward_expansion=forward_expansion
+            ) for _ in range(num_layers)
+        ])
+
+        # Add dropout for regularization and preventing overfitting
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, mask):
+        # Get the batch size and sequence length
         N, seq_length = x.shape
+
+        # Generate position indices and expand them to match the input shape
         pos = torch.arange(0, seq_length).expand(N, seq_length).to(self.device)
 
+        # Combine word and position embeddings and apply dropout
         out = self.dropout(self.word_embedding(x) + self.position_embedding(pos))
         
+        # Pass the input through the TransformerBlock layers
         for layer in self.layers:
             out = layer(out, out, out, mask)
         
         return out
 
-class DecoderBlock(nn.Module):
-
-    def __init__(self, emb_size, heads, forward_expansion, dropout, device):
-        super(DecoderBlock, self).__init__()
-        self.attention = SelfAttention(emb_size, heads, device)
-        self.norm = nn.LayerNorm(emb_size)
-        self.transformer_block = TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion, device=device)
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, x, value, key, src_mask, target_mask):
-        attention = self.attention(x, x, x, target_mask)
-        query = self.dropout(self.norm(attention + x))
-        out = self.transformer_block(value, key, query, src_mask)
-        return out
-
+# Define a Decoder class
 class Decoder(nn.Module):
 
     def __init__(self, target_vocab_size, emb_size, num_layers, heads, forward_expansion, dropout, device, max_len):
         super(Decoder,self).__init__()
         self.emb_size = emb_size
         self.device = device
+
+        # Create word embeddings to map token indices to continuous vectors
         self.word_embedding = nn.Embedding(target_vocab_size, emb_size)
+
+        # Create position embeddings to incorporate positional information into the model
         self.position_embedding = nn.Embedding(max_len, emb_size)
+
+        # Instantiate multiple DecoderBlock layers in a ModuleList for the desired depth
         self.layers = nn.ModuleList([DecoderBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion, device=device) for _ in range(num_layers)])
+        
+        # Add a fully connected output layer to project the embeddings to target vocabulary size
         self.fc_out = nn.Linear(emb_size, target_vocab_size)
+
+        # Add dropout for regularization and preventing overfitting
         self.dropout = nn.Dropout(dropout)
     
     def forward(self, x, enc_out, src_mask, target_mask):
+        # Get the batch size and sequence length
         N, seq_len = x.shape
+
+        # Generate position indices and expand them to match the input shape
         pos = torch.arange(0, seq_len).expand(N, seq_len).to(self.device)
+
+        # Combine word and position embeddings and apply dropout
         x = self.dropout(self.word_embedding(x) + self.position_embedding(pos))
+
+        # Pass the input through the DecoderBlock layers with the Encoder output and masks
         for layer in self.layers:
             x = layer(x, enc_out, enc_out, src_mask, target_mask)
+        
+        # Project the output of the DecoderBlock layers to the target vocabulary size
         out = self.fc_out(x)
+
+        return out
+
+# Define a DecoderBlock class
+class DecoderBlock(nn.Module):
+
+    def __init__(self, emb_size, heads, forward_expansion, dropout, device):
+        super(DecoderBlock, self).__init__()
+
+        # Instantiate a SelfAttention layer for masked self-attention in the Decoder
+        self.attention = SelfAttention(emb_size, heads, device)
+
+        # Add LayerNorm for input stabilization and improving training efficiency
+        self.norm = nn.LayerNorm(emb_size)
+
+        # Instantiate a TransformerBlock for cross-attention between Encoder and Decoder
+        self.transformer_block = TransformerBlock(emb_size, heads, dropout=dropout, forward_expansion=forward_expansion)
+
+        # Add dropout for regularization and preventing overfitting
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x, value, key, src_mask, target_mask):
+
+        # Calculate masked self-attention scores and apply them to the input
+        attention = self.attention(x, x, x, target_mask)
+
+        # Perform residual connection (add original input to the self-attention output)
+        # and apply LayerNorm to stabilize the input for the next layer
+        query = self.dropout(self.norm(attention + x))
+
+        # Pass the output through the TransformerBlock for cross-attention
+        # between the Encoder output and Decoder self-attention output
+        out = self.transformer_block(value, key, query, src_mask)
         return out
 
 
@@ -180,18 +236,23 @@ class Transformer(nn.Module):
     def __init__(self, src_vocab_size, target_vocab_size, src_pad_idx, target_pad_idx, emb_size=512, num_layers=6, forward_expansion=4, heads=8, dropout=0, device='cuda',max_len=100):
         super(Transformer,self).__init__()
 
+        # Instantiate an Encoder to process the source sequence
         self.encoder = Encoder(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len)
 
+        # Instantiate a Decoder to generate the target sequence
         self.decoder = Decoder(target_vocab_size, emb_size, num_layers, heads, forward_expansion, dropout, device, max_len)
 
+        # Store padding indices and device for mask creation
         self.src_pad_idx = src_pad_idx
         self.target_pad_idx = target_pad_idx
         self.device = device
     
+    # Create a source mask for the Encoder to ignore padding tokens
     def make_src_mask(self, src):
         src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2) # (N, 1, 1, src_len)
         return src_mask.to(self.device)
 
+    # Create a target mask for the Decoder to prevent attention beyond the current token
     def make_target_mask(self, target):
         N, target_len = target.shape
 
@@ -200,10 +261,14 @@ class Transformer(nn.Module):
         return target_mask.to(self.device)
 
     def forward(self, src, target):
-
+        # Create masks for the source and target sequences
         src_mask = self.make_src_mask(src)
         target_mask = self.make_target_mask(target)
+
+        # Pass the source sequence through the Encoder
         enc_src = self.encoder(src, src_mask)
+
+         # Pass the target sequence and Encoder output through the Decoder
         out = self.decoder(target, enc_src, src_mask, target_mask)
 
         return out
