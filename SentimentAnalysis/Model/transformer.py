@@ -365,7 +365,7 @@ class TransformerLocalAttentionBlock(nn.Module):
 class EncoderLocalAttention(nn.Module):
 
     def __init__(self, src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len, k=16): # Add the k parameter
-        super(Encoder,self).__init__()
+        super(EncoderLocalAttention,self).__init__()
         self.emb_size = emb_size
         self.device = device
         self.word_embedding = nn.Embedding(src_vocab_size, emb_size)
