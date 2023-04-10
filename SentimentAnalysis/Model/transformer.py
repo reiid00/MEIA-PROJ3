@@ -63,68 +63,6 @@ class SelfAttention(nn.Module):
         out = self.fc_out(out)
         return out
 
-#  Attention is limited to a fixed-sized window around the current position.
-#  Can help the model focus on local patterns, which might be relevant to emotion analysis.
-class LocalSelfAttention(nn.Module):
-    def __init__(self, emb_size, heads, device, k=16):
-        super(LocalSelfAttention, self).__init__()
-        self.emb_size = emb_size
-        self.heads = heads
-        self.head_dim = emb_size // heads
-        self.device = device
-        self.k = k
-
-        # Verify head_dim size
-        assert (self.head_dim * heads == emb_size), "Embed size must be divisible by heads"
-
-        self.values = nn.Linear(emb_size, emb_size)
-        self.keys = nn.Linear(emb_size, emb_size)
-        self.queries = nn.Linear(emb_size, emb_size)
-        self.fc_out = nn.Linear(emb_size, emb_size)
-
-        # Initialize bias terms with zeros
-        nn.init.zeros_(self.values.bias)
-        nn.init.zeros_(self.keys.bias)
-        nn.init.zeros_(self.queries.bias)
-
-    def forward(self, values, keys, queries, mask=None):
-        N = queries.shape[0]
-        value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1]
-
-        values = self.values(values)
-        keys = self.keys(keys)
-        queries = self.queries(queries)
-
-        values = values.reshape(N, value_len, self.heads, self.head_dim)
-        keys = keys.reshape(N, key_len, self.heads, self.head_dim)
-        queries = queries.reshape(N, query_len, self.heads, self.head_dim)
-
-        energy = torch.einsum("nqhd,nkhd->nhqk", [queries, keys])
-        
-        # Apply local attention
-        if self.k > 0:
-            max_k = self.k // 2
-            min_k = -max_k
-            local_mask = torch.ones((key_len, key_len), device=self.device)
-            local_mask = local_mask.tril(max_k).triu(min_k)
-            local_mask = local_mask.view(1, 1, key_len, key_len)
-            
-            if mask is not None:
-                mask = mask * local_mask  # Combine the local mask and the regular mask
-            else:
-                mask = local_mask
-        
-        if mask is not None:
-            energy = energy.masked_fill(mask == 0, float("-1e20"))
-
-        attention = torch.softmax(energy / (self.emb_size ** (1 / 2)), dim=3)
-        out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
-            N, query_len, self.heads * self.head_dim
-        )
-
-        out = self.fc_out(out)
-        return out
-
 class TransformerBlock(nn.Module):
 
     def __init__(self, emb_size, heads, dropout, forward_expansion, device):
@@ -146,6 +84,7 @@ class TransformerBlock(nn.Module):
         out = self.dropout(self.norm2(forward+x))
         
         return out
+
 
 class Encoder(nn.Module):
 
@@ -323,6 +262,177 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
         pooled_output = torch.cat((pooled_output, sentiment_scores), dim=1) # Add sentiment scores to the pooled output
         logits = self.classifier(pooled_output)  # (bs, num_labels)
         #print("Logits output:", has_nan_or_inf(logits))
+
+        loss = None
+        if labels is not None:
+            loss_fct = torch.nn.BCEWithLogitsLoss()
+            loss = loss_fct(logits, labels.float())
+
+        return (loss, logits)
+    
+
+#  Attention is limited to a fixed-sized window around the current position.
+#  Can help the model focus on local patterns, which might be relevant to emotion analysis.
+class LocalSelfAttention(nn.Module):
+    def __init__(self, emb_size, heads, device, k=16):
+        super(LocalSelfAttention, self).__init__()
+        self.emb_size = emb_size
+        self.heads = heads
+        self.head_dim = emb_size // heads
+        self.device = device
+        self.k = k
+
+        # Verify head_dim size
+        assert (self.head_dim * heads == emb_size), "Embed size must be divisible by heads"
+
+        self.values = nn.Linear(emb_size, emb_size)
+        self.keys = nn.Linear(emb_size, emb_size)
+        self.queries = nn.Linear(emb_size, emb_size)
+        self.fc_out = nn.Linear(emb_size, emb_size)
+
+        # Initialize bias terms with zeros
+        nn.init.zeros_(self.values.bias)
+        nn.init.zeros_(self.keys.bias)
+        nn.init.zeros_(self.queries.bias)
+
+    def forward(self, values, keys, queries, mask=None):
+        N = queries.shape[0]
+        value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1]
+
+        values = self.values(values)
+        keys = self.keys(keys)
+        queries = self.queries(queries)
+
+        values = values.reshape(N, value_len, self.heads, self.head_dim)
+        keys = keys.reshape(N, key_len, self.heads, self.head_dim)
+        queries = queries.reshape(N, query_len, self.heads, self.head_dim)
+
+        energy = torch.einsum("nqhd,nkhd->nhqk", [queries, keys])
+        
+        # Apply local attention
+        if self.k > 0:
+            max_k = self.k // 2
+            min_k = -max_k
+            local_mask = torch.ones((key_len, key_len), device=self.device)
+            local_mask = local_mask.tril(max_k).triu(min_k)
+            local_mask = local_mask.view(1, 1, key_len, key_len)
+            
+            if mask is not None:
+                mask = mask * local_mask  # Combine the local mask and the regular mask
+            else:
+                mask = local_mask
+        
+        if mask is not None:
+            energy = energy.masked_fill(mask == 0, float("-1e20"))
+
+        attention = torch.softmax(energy / (self.emb_size ** (1 / 2)), dim=3)
+        out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
+            N, query_len, self.heads * self.head_dim
+        )
+
+        out = self.fc_out(out)
+        return out
+
+class TransformerLocalAttentionBlock(nn.Module):
+    def __init__(self, emb_size, heads, device, forward_expansion, dropout, k=16): # Add the k parameter
+        super(TransformerLocalAttentionBlock, self).__init__()
+        self.attention = LocalSelfAttention(emb_size, heads, device, k) # Replace SelfAttention with LocalSelfAttention
+        self.norm1 = nn.LayerNorm(emb_size)
+        self.norm2 = nn.LayerNorm(emb_size)
+
+        self.feed_forward = nn.Sequential(
+            nn.Linear(emb_size, forward_expansion * emb_size),
+            nn.ReLU(),
+            nn.Linear(forward_expansion * emb_size, emb_size),
+        )
+
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, value, key, query, mask=None):
+        attention = self.attention(value, key, query, mask)
+
+        # Apply residual connection and layer normalization
+        x = self.norm1(attention + query)
+        x = self.dropout(x)
+        forward = self.feed_forward(x)
+
+        # Apply residual connection and layer normalization
+        out = self.norm2(forward + x)
+        out = self.dropout(out)
+
+        return out
+
+class EncoderLocalAttention(nn.Module):
+
+    def __init__(self, src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len, k=16): # Add the k parameter
+        super(Encoder,self).__init__()
+        self.emb_size = emb_size
+        self.device = device
+        self.word_embedding = nn.Embedding(src_vocab_size, emb_size)
+        self.position_embedding = nn.Embedding(max_len, emb_size)
+        self.layers = nn.ModuleList(
+            [
+                TransformerLocalAttentionBlock(
+                    emb_size,
+                    heads,
+                    device,
+                    forward_expansion,
+                    dropout,
+                    k, # Pass the k parameter to the TransformerBlock
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, mask):
+        N, seq_length = x.shape
+        pos = torch.arange(0, seq_length).expand(N, seq_length).to(self.device)
+
+        out = self.dropout(self.word_embedding(x) + self.position_embedding(pos))
+        
+        for layer in self.layers:
+            out = layer(out, out, out, mask)
+        
+        return out
+
+class MultilabelLocalAttentionSequenceClassificationTransformer(nn.Module):
+    def __init__(self, src_vocab_size, num_classes, src_pad_idx, emb_size=512, num_layers=6, forward_expansion=4, heads=8, dropout=0, device='cuda', max_len=100,k=16):
+        super(MultilabelLocalAttentionSequenceClassificationTransformer, self).__init__()
+
+        self.encoder = EncoderLocalAttention(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len,k)
+        self.emotion_extractor = EmotionFeatureExtractor(emb_size)
+        self.classifier = nn.Linear(emb_size + 1, num_classes)
+        self.pre_classifier = nn.Linear(emb_size, emb_size)
+        self.dropout = nn.Dropout(dropout)
+        self.src_pad_idx = src_pad_idx
+        self.device = device
+        self.num_classes = num_classes
+        self._reset_parameters()
+        torch.autograd.set_detect_anomaly(True)
+    
+    def _reset_parameters(self):
+        for name, p in self.named_parameters():
+            if 'weight' in name and p.dim() > 1:
+                fan_in = p.size(-1)
+                nn.init.normal_(p, mean=0, std=np.sqrt(1 / fan_in))
+            elif 'bias' in name:
+                nn.init.zeros_(p)
+
+    def make_src_mask(self, src):
+        src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)  # (N, 1, 1, src_len)
+        return src_mask.to(self.device)
+
+    def forward(self, src: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
+        src_mask = self.make_src_mask(src)
+        enc_src = self.encoder(src, src_mask)
+        enc_src_mean = enc_src.mean(dim=1)
+        sentiment_scores = self.emotion_extractor(enc_src_mean)
+        pooled_output = self.pre_classifier(enc_src_mean)  # (bs, dim)
+        pooled_output = nn.ReLU()(pooled_output)  # (bs, dim)
+        pooled_output = self.dropout(pooled_output)  # (bs, dim)
+        pooled_output = torch.cat((pooled_output, sentiment_scores), dim=1) # Add sentiment scores to the pooled output
+        logits = self.classifier(pooled_output)  # (bs, num_labels)
 
         loss = None
         if labels is not None:
