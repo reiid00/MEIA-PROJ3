@@ -19,11 +19,6 @@ class SelfAttention(nn.Module):
         self.keys = nn.Linear(emb_size, emb_size)
         self.queries = nn.Linear(emb_size, emb_size)
         self.fc_out = nn.Linear(emb_size, emb_size) # should be (heads*self.head_dim, embed_size) but heads*self.head_dim should be equal to embed_size
-
-        # Initialize bias terms with zeros
-        nn.init.zeros_(self.values.bias)
-        nn.init.zeros_(self.keys.bias)
-        nn.init.zeros_(self.queries.bias)
     
     def forward(self, values, keys, queries, mask=None):
         N = queries.shape[0]
@@ -64,6 +59,68 @@ class SelfAttention(nn.Module):
             N, query_len, self.heads * self.head_dim
         )
         #print("Output after einsum:", has_nan_or_inf(out))
+
+        out = self.fc_out(out)
+        return out
+
+#  Attention is limited to a fixed-sized window around the current position.
+#  Can help the model focus on local patterns, which might be relevant to emotion analysis.
+class LocalSelfAttention(nn.Module):
+    def __init__(self, emb_size, heads, device, k=16):
+        super(LocalSelfAttention, self).__init__()
+        self.emb_size = emb_size
+        self.heads = heads
+        self.head_dim = emb_size // heads
+        self.device = device
+        self.k = k
+
+        # Verify head_dim size
+        assert (self.head_dim * heads == emb_size), "Embed size must be divisible by heads"
+
+        self.values = nn.Linear(emb_size, emb_size)
+        self.keys = nn.Linear(emb_size, emb_size)
+        self.queries = nn.Linear(emb_size, emb_size)
+        self.fc_out = nn.Linear(emb_size, emb_size)
+
+        # Initialize bias terms with zeros
+        nn.init.zeros_(self.values.bias)
+        nn.init.zeros_(self.keys.bias)
+        nn.init.zeros_(self.queries.bias)
+
+    def forward(self, values, keys, queries, mask=None):
+        N = queries.shape[0]
+        value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1]
+
+        values = self.values(values)
+        keys = self.keys(keys)
+        queries = self.queries(queries)
+
+        values = values.reshape(N, value_len, self.heads, self.head_dim)
+        keys = keys.reshape(N, key_len, self.heads, self.head_dim)
+        queries = queries.reshape(N, query_len, self.heads, self.head_dim)
+
+        energy = torch.einsum("nqhd,nkhd->nhqk", [queries, keys])
+        
+        # Apply local attention
+        if self.k > 0:
+            max_k = self.k // 2
+            min_k = -max_k
+            local_mask = torch.ones((key_len, key_len), device=self.device)
+            local_mask = local_mask.tril(max_k).triu(min_k)
+            local_mask = local_mask.view(1, 1, key_len, key_len)
+            
+            if mask is not None:
+                mask = mask * local_mask  # Combine the local mask and the regular mask
+            else:
+                mask = local_mask
+        
+        if mask is not None:
+            energy = energy.masked_fill(mask == 0, float("-1e20"))
+
+        attention = torch.softmax(energy / (self.emb_size ** (1 / 2)), dim=3)
+        out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
+            N, query_len, self.heads * self.head_dim
+        )
 
         out = self.fc_out(out)
         return out
@@ -228,7 +285,8 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
         super(MultilabelSequenceClassificationTransformer, self).__init__()
 
         self.encoder = Encoder(src_vocab_size, emb_size, num_layers, heads, device, forward_expansion, dropout, max_len)
-        self.classifier = nn.Linear(emb_size, num_classes)
+        self.emotion_extractor = EmotionFeatureExtractor(emb_size)
+        self.classifier = nn.Linear(emb_size + 1, num_classes)
         self.pre_classifier = nn.Linear(emb_size, emb_size)
         self.dropout = nn.Dropout(dropout)
         self.src_pad_idx = src_pad_idx
@@ -257,10 +315,12 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
         enc_src = self.encoder(src, src_mask)
         #print("Encoder output:", has_nan_or_inf(enc_src))
         enc_src_mean = enc_src.mean(dim=1)
+        sentiment_scores = self.emotion_extractor(enc_src_mean)
         pooled_output = self.pre_classifier(enc_src_mean)  # (bs, dim)
         pooled_output = nn.ReLU()(pooled_output)  # (bs, dim)
         pooled_output = self.dropout(pooled_output)  # (bs, dim)
         #print("Pooled output:", has_nan_or_inf(pooled_output))
+        pooled_output = torch.cat((pooled_output, sentiment_scores), dim=1) # Add sentiment scores to the pooled output
         logits = self.classifier(pooled_output)  # (bs, num_labels)
         #print("Logits output:", has_nan_or_inf(logits))
 
@@ -270,6 +330,19 @@ class MultilabelSequenceClassificationTransformer(nn.Module):
             loss = loss_fct(logits, labels.float())
 
         return (loss, logits)
+
+
+
+# Computes sentiment scores for each token and uses these scores to modulate the attention mechanism
+
+class EmotionFeatureExtractor(nn.Module):
+    def __init__(self, emb_size):
+        super(EmotionFeatureExtractor, self).__init__()
+        self.sentiment_fc = nn.Linear(emb_size, 1)
+
+    def forward(self, x):
+        sentiment_scores = torch.sigmoid(self.sentiment_fc(x))
+        return sentiment_scores
     
 def has_nan_or_inf(tensor):
     return torch.isnan(tensor.detach()).any() or torch.isinf(tensor.detach()).any()
