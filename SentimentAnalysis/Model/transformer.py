@@ -3,35 +3,42 @@ import torch.nn as nn
 import numpy as np
 from typing import Optional, Tuple
 
+# Define a SelfAttention class
 class SelfAttention(nn.Module):
 
-    def __init__(self, emb_size, heads,device):
+    # Initialize the class with necessary parameters
+    def __init__(self, emb_size, heads):
         super(SelfAttention, self).__init__()
         self.emb_size = emb_size
         self.heads = heads
         self.head_dim = emb_size // heads
-        self.device = device
 
         # Verify head_dim size
         assert (self.head_dim * heads == emb_size), "Embed size must be divisible by heads"
 
+        # Initialize linear layers for values, keys, queries, and output
         self.values = nn.Linear(emb_size, emb_size)
         self.keys = nn.Linear(emb_size, emb_size)
         self.queries = nn.Linear(emb_size, emb_size)
         self.fc_out = nn.Linear(emb_size, emb_size) # should be (heads*self.head_dim, embed_size) but heads*self.head_dim should be equal to embed_size
     
     def forward(self, values, keys, queries, mask=None):
+        # Get the batch size and lengths of values, keys, and queries
         N = queries.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1] # get len
 
+        # Pass values, keys, and queries through linear layers
         values = self.values(values)
         keys = self.keys(keys)
         queries = self.queries(queries)
+        
+        # Reshape values, keys, and queries to have separate dimensions for heads and head_dim
         # Split embedding into self.heads pieces
         values = values.reshape(N, value_len, self.heads, self.head_dim) # (N, values_len, heads, head_dim)
         keys = keys.reshape(N, key_len, self.heads, self.head_dim) # (N, key_len, heads, head_dim)
         queries = queries.reshape(N, query_len, self.heads, self.head_dim) # (N, query_len, heads, head_dim)
-        
+
+        # Calculate the energy (dot product) between queries and keys
         # We have:
         # queries shape: (N, query_len, heads, head_dim)
         # keys shape: (N, key_len, heads, head_dim)
@@ -39,15 +46,20 @@ class SelfAttention(nn.Module):
         # energy shape: (N, heads, query_len, key_len)
         energy = torch.einsum("nqhd,nkhd->nhqk", [queries, keys]) # QK.T ( part of attention )
         #print("Energy before mask output:", has_nan_or_inf(energy))
+
+        # If a mask is provided, apply it to the energy
         if mask is not None:
             # Upper left triangle is being changed to 0s in order to prevent insight of the following words / tokens and try to predict them
             energy = energy.masked_fill(mask == 0, float("-1e20"))
             #print("Energy after mask output:", has_nan_or_inf(energy))
         
+        # Normalize the energy by the square root of emb_size and apply softmax
         # Basically (QK.T(energy) / emb_size(dk) ** 0.5 )
         attention = torch.softmax(energy / (self.emb_size ** (1 / 2)), dim=3) # Normalizing across key_len
 
         #print("Attention output:", has_nan_or_inf(attention))
+
+        # Multiply the attention weights by the values and sum along the key_len dimension
         # We have:
         # attention shape: (N, heads, query_len, key_len)
         # values shape: (N, values_len, heads, head_dim)
@@ -60,27 +72,45 @@ class SelfAttention(nn.Module):
         )
         #print("Output after einsum:", has_nan_or_inf(out))
 
+        # Pass the output through a fully connected layer
         out = self.fc_out(out)
         return out
-
+    
+# Define a TransformerBlock class
 class TransformerBlock(nn.Module):
 
+     # Initialize the class with necessary parameters
     def __init__(self, emb_size, heads, dropout, forward_expansion, device):
         super(TransformerBlock, self).__init__()
+        # Instantiate a SelfAttention layer to model relationships between tokens in the sequence
         self.attention = SelfAttention(emb_size, heads, device)
+
+        # Add LayerNorm layers for input stabilization and improving training efficiency
         self.norm1 = nn.LayerNorm(emb_size)
         self.norm2 = nn.LayerNorm(emb_size)
+
+        # Define a feed-forward neural network for additional non-linear transformation
         self.feed_forward = nn.Sequential(
             nn.Linear(emb_size, forward_expansion*emb_size),
             nn.ReLU(),
             nn.Linear(forward_expansion*emb_size, emb_size)
         )
+        # Add dropout for regularization and preventing overfitting
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, value, key, query, mask):
+        # Calculate self-attention scores and apply them to the input values
         attention = self.attention(value, key, query, mask)
+
+        # Perform residual connection (add original input to the self-attention output)
+        # and apply LayerNorm to stabilize the input for the next layer
         x = self.dropout(self.norm1(attention + query))
+
+        # Pass the output through the feed-forward network for further non-linear transformation
         forward = self.feed_forward(x)
+
+        # Perform another residual connection (add the output of the self-attention layer
+        # to the output of the feed-forward network) and apply LayerNorm
         out = self.dropout(self.norm2(forward+x))
         
         return out
