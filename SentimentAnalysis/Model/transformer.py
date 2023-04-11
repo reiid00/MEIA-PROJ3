@@ -445,11 +445,6 @@ class LocalSelfAttention(nn.Module):
         self.queries = nn.Linear(emb_size, emb_size)
         self.fc_out = nn.Linear(emb_size, emb_size)
 
-        # Initialize bias terms with zeros
-        nn.init.zeros_(self.values.bias)
-        nn.init.zeros_(self.keys.bias)
-        nn.init.zeros_(self.queries.bias)
-
     def forward(self, values, keys, queries, mask=None):
         N = queries.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1]
@@ -499,7 +494,7 @@ class TransformerLocalAttentionBlock(nn.Module):
 
         self.feed_forward = nn.Sequential(
             nn.Linear(emb_size, forward_expansion * emb_size),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(forward_expansion * emb_size, emb_size),
         )
 
