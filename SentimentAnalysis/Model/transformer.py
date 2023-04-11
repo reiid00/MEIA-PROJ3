@@ -432,11 +432,14 @@ class LocalSelfAttention(nn.Module):
         self.heads = heads
         self.head_dim = emb_size // heads
         self.device = device
+
+        # Local context window size
         self.k = k
 
         # Verify head_dim size
         assert (self.head_dim * heads == emb_size), "Embed size must be divisible by heads"
 
+        # Linear transformations for values, keys, and queries
         self.values = nn.Linear(emb_size, emb_size)
         self.keys = nn.Linear(emb_size, emb_size)
         self.queries = nn.Linear(emb_size, emb_size)
@@ -451,10 +454,12 @@ class LocalSelfAttention(nn.Module):
         N = queries.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1]
 
+        # Apply linear transformations
         values = self.values(values)
         keys = self.keys(keys)
         queries = self.queries(queries)
 
+        # Reshape to obtain separate heads
         values = values.reshape(N, value_len, self.heads, self.head_dim)
         keys = keys.reshape(N, key_len, self.heads, self.head_dim)
         queries = queries.reshape(N, query_len, self.heads, self.head_dim)
