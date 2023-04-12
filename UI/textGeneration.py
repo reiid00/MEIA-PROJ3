@@ -57,7 +57,7 @@ def generateText(text, emotions, context):
     except ValueError as e:
         return str(e)
 
-@app.route('/translate_text', methods=['POST'])
+@app.route('/text_generation', methods=['POST'])
 def translate_text():
     text = request.json['text']
     emotions = request.json['emotions']
