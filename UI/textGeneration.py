@@ -14,7 +14,7 @@ def load_generation_model():
     return tokenizer, model
 
 
-def generate(prompt):
+def generate(prompt,model = None, tokenizer = None):
     if model is None:
         # Load the translation model
         tokenizer, model = load_generation_model()
@@ -27,20 +27,23 @@ def generate(prompt):
 
     # Extract the response text
     response = generated_text[0]['generated_text'][len(prompt):].strip()
-
+    print("REsponse",response)
     return response
 
 
-# Set the context, emotions, and prompt text
-context = "IT support"
-emotions = ["frustrated"]
-prompt_text = "Generate response to client about the ticket that he created about not being able to access his account"
+# # Set the context, emotions, and prompt text
+# context = "IT support"
+# emotions = ["frustrated"]
+# prompt_text = "Generate response to client about the ticket that he created about not being able to access his account"
 
 
 
 def generateText(text, emotions, context):
     try:
-     #Verify that the parameters are not null
+
+        model = None
+        tokenizer = None
+        #Verify that the parameters are not null
         if text is not None and context is not None and isinstance(emotions, list):
 
             # Create a string that lists the emotions in the array, separated by commas
@@ -51,7 +54,7 @@ def generateText(text, emotions, context):
              # Concatenate the text and context into a single string
             prompt="Text: " + text +  ". Sentiments:"+ emotion_string + ". Context:" +context 
     
-            generated_text = generate(prompt)
+            generated_text = generate(prompt,model,tokenizer)
 
         return generated_text
     except ValueError as e:
