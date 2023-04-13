@@ -3,58 +3,53 @@ from flask import Flask, request, jsonify
 import torch
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, pipeline
 
+
+
+import openai
+import random
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 app = Flask(__name__)
 
+# Set up OpenAI API credentials and create a GPT-2 model instance
+openai.api_key = "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"
+model="gpt-3.5-turbo"
 
-def load_generation_model():
-    # Load the pre-trained GPT-2 model and tokenizer
-    model = GPT2LMHeadModel.from_pretrained("gpt2")
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    return tokenizer, model
+def generate(prompt,model):
 
+    prompt_msg = openai.ChatCompletion.create(
+                    model=model,
+                    messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+    generated_text = prompt_msg.choices[0]['message']
+    message_prompt = generated_text['content']
 
-def generate(prompt,model = None, tokenizer = None):
-    if model is None:
-        # Load the translation model
-        tokenizer, model = load_generation_model()
-
-   # Create a pipeline for text generation
-    text_generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
-
-    # Generate a response
-    generated_text = text_generator(prompt, max_length=200, num_return_sequences=1)
-
-    # Extract the response text
-    response = generated_text[0]['generated_text'][len(prompt):].strip()
-    print("REsponse",response)
-    return response
-
-
-# # Set the context, emotions, and prompt text
-# context = "IT support"
-# emotions = ["frustrated"]
-# prompt_text = "Generate response to client about the ticket that he created about not being able to access his account"
-
+    return message_prompt
 
 
 def generateText(text, emotions, context):
     try:
 
-        model = None
-        tokenizer = None
         #Verify that the parameters are not null
         if text is not None and context is not None and isinstance(emotions, list):
 
             # Create a string that lists the emotions in the array, separated by commas
             emotion_string = ", ".join(emotions)
 
-            print(emotion_string)
-
              # Concatenate the text and context into a single string
             prompt="Text: " + text +  ". Sentiments:"+ emotion_string + ". Context:" +context 
+            prompt=f'''You are a Ticket Response BOT. Please generate a formal, helpful, and empathetic response to the user’s message, taking into account their Emotions Detected and the relevant department, listed bellow. Make sure the response directly addresses the user’s issue and maintains a professional tone.
+
+                Emotions detected: {', '.join(emotions)}
+                Department: {context}
+                User message: {text}
+                User name: Default
+
+                Response:'''
     
-            generated_text = generate(prompt,model,tokenizer)
+            generated_text = generate(prompt,model)
 
         return generated_text
     except ValueError as e:
