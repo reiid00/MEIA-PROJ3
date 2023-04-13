@@ -58,16 +58,19 @@ def handle_translation(text, target_language):
             tokenizer = tokenizer_en_pt
         translated_text = translate(text, src_lang, target_language, model, tokenizer)
 
-        return translated_text
+        return translated_text,src_lang
     except ValueError as e:
         return str(e)
 
 @app.route('/translate_text', methods=['POST'])
 def translate_text():
-    text = request.json['text']
-    lang = request.json['lang']
-    translated_text = handle_translation(text, lang)
-    return jsonify({'text': translated_text})
+    print("translate_text")
+    text = request.json['ticket_text']
+    lang = request.json['to_lang']
+    print("text",text,"lang",lang)
+    translated_text,src_lang = handle_translation(text, lang)
+    print(translated_text,src_lang)
+    return jsonify({'ticket_text_translated': translated_text, 'detected_language': src_lang})
     
 
 
