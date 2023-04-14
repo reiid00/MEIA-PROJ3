@@ -2,8 +2,6 @@
 from flask import Flask, request, jsonify
 import torch
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, pipeline
-
-
 import openai
 import random
 
