@@ -14,12 +14,12 @@ tokenizer = AutoTokenizer.from_pretrained(model)
 model = DistilBertForMultilabelSequenceClassification.from_pretrained(model).to(device)
 threshold = 0.5
 
-with open('UI\data\i2label.json', 'r') as f:
+with open('UI/data/i2label.json', 'r') as f:
     id2label = json.load(f)
 
 @app.route('/predict_emotion', methods=['POST'])
 def predict():
-    text = request.json['text']
+    text = request.json['ticket_text_translated']
     binary_preds = predict_label(text)
     return jsonify({'emotions': binary_preds})
 

@@ -29,7 +29,7 @@ def generate(prompt,model):
     return message_prompt
 
 
-def generateText(text, emotions, context):
+def generateText(text, emotions,product,sub_product, issue, sub_issue):
     try:
 
         #Verify that the parameters are not null
@@ -43,7 +43,10 @@ def generateText(text, emotions, context):
             prompt=f'''You are a Ticket Response BOT. Please generate a formal, helpful, and empathetic response to the user’s message, taking into account their Emotions Detected and the relevant department, listed bellow. Make sure the response directly addresses the user’s issue and maintains a professional tone.
 
                 Emotions detected: {', '.join(emotions)}
-                Department: {context}
+                Issue: {issue}
+                Sub_issue: {sub_issue}
+                Product: {product}
+                Sub_product: {sub_product}
                 User message: {text}
                 User name: Default
 
@@ -57,11 +60,18 @@ def generateText(text, emotions, context):
 
 @app.route('/text_generation', methods=['POST'])
 def translate_text():
-    text = request.json['text']
+    print("DENTRO DO translate_text")
+    text = request.json['ticket_text_translated']
     emotions = request.json['emotions']
-    context = request.json['context']
-    generatedText = generateText(text, emotions,context)
-    return jsonify({'text': generatedText})
+    product = request.json['product']
+    sub_product = request.json['sub_product']
+    issue = request.json['issue']
+    sub_issue = request.json['sub_issue']
+
+    # generatedText = generateText(text, emotions,product,sub_product, issue, sub_issue)
+    print("text-",text," emotions", emotions, " product", product, " sub_product",sub_product," issue",issue, " sub_issue",sub_issue)
+    generatedText="texto gerado"
+    return jsonify({'ticket_answer': generatedText})
     
 
 
