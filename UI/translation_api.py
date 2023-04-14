@@ -29,6 +29,9 @@ def detect_language(text):
         raise ValueError("Language could not be detected")
 
 def translate(text, src_lang, tgt_lang, model = None, tokenizer = None, max_new_tokens = 512):
+    # Verify if is the same language
+    if src_lang == tgt_lang:
+        return text
     if model is None:
         # Load the translation model
         tokenizer, model = load_translation_model(src_lang, tgt_lang)
@@ -58,7 +61,7 @@ def handle_translation(text, target_language):
             tokenizer = tokenizer_en_pt
         translated_text = translate(text, src_lang, target_language, model, tokenizer)
 
-        return translated_text
+        return translated_text, src_lang
     except ValueError as e:
         return str(e)
 
@@ -66,8 +69,8 @@ def handle_translation(text, target_language):
 def translate_text():
     text = request.json['text']
     lang = request.json['lang']
-    translated_text = handle_translation(text, lang)
-    return jsonify({'text': translated_text})
+    translated_text, src_lang = handle_translation(text, lang)
+    return jsonify({'translated_text': translated_text, "detected_language": src_lang})
     
 
 
