@@ -25,8 +25,8 @@ function AppUser() {
 
   const handleSubmit = async () => {
     try {
-      const response = await axios.post("http://localhost:8094/submitTicket", {
-        text: complaintText,
+      const response = await axios.post("http://localhost:8094/resolveTicket", {
+        ticket_text: complaintText,
       });
 
       // Save the ticket to the context
