@@ -1,17 +1,20 @@
 from flask import Flask, jsonify, request
 import requests
 from concurrent.futures import ThreadPoolExecutor
+from flask_cors import CORS
 
 
 
 app = Flask(__name__)
+CORS(app)
 
 @app.route('/resolveTicket', methods=['POST'])
 def resolveTicket():
 
     # get the ticket text from the request
     ticket_text = request.json['ticket_text']
-    to_lang= 'pt'
+
+    to_lang = 'en'
 
     ticket_text_translated,detected_language= translate_text(ticket_text,to_lang)
 
@@ -19,17 +22,18 @@ def resolveTicket():
     with ThreadPoolExecutor(max_workers=2) as executor:
         predict_categories_result= executor.submit(predict_categories, ticket_text_translated)
         predict_emotion_result = executor.submit(predict_emotion, ticket_text_translated)
-        translated = executor.submit(translate_text, ticket_text,to_lang)
         
         # prediction_result = predict_categories_result.result()
         emotions = predict_emotion_result.result()
         print("emotions",emotions)
 
         # prediction results
-        product= predict_categories_result[0]
-        sub_product= predict_categories_result[1]
-        issue=predict_categories_result[2]
-        sub_issue=predict_categories_result[3]
+        typification = predict_categories_result.result()
+        print("typification",typification)
+        product= typification['product']
+        sub_product= typification['sub_product']
+        issue=typification['issue']
+        sub_issue=typification['sub_issue']
    
         # print("",translated,"emotions",emotions)
         # product= "P"
@@ -102,10 +106,9 @@ def predict_categories(ticket_text_translated):
     response = requests.post(predict_categories_url, json=params)
  
     data = response.json()
-    print(data.get('ticket_answer'))
     
     # return the translated ticket text and detected language
-    return data.get('ticket_answer')
+    return data
 
 
 def predict_emotion(ticket_text_translated):

@@ -4,13 +4,11 @@ import torch
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, pipeline
 
 
-
 import openai
 import random
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 app = Flask(__name__)
-
 # Set up OpenAI API credentials and create a GPT-2 model instance
 openai.api_key = "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"
 model="gpt-3.5-turbo"
