@@ -85,7 +85,7 @@ app = Flask(__name__)
 
 @app.route('/predict_categories', methods=['POST'])
 def predict():
-    new_complaint = request.json['text']
+    new_complaint = request.json['ticket_text_translated']
     pred = chosen_model.predict(preprocess_text_data(pd.Series(new_complaint)))
     return jsonify({
         'product': id2label_product[str(np.argmax(pred[0]))], 
