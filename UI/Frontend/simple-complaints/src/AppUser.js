@@ -41,15 +41,8 @@ function AppUser() {
 
   return (
     <Container className="container" maxWidth="sm">
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          marginTop: 4,
-        }}
-      >
-        <h1>User</h1>
+      <Box className="form-box">
+        <h1>Support System - User Perspective</h1>
         <TextField
           label="Complaint Text"
           multiline
@@ -58,13 +51,13 @@ function AppUser() {
           value={complaintText}
           onChange={(e) => setComplaintText(e.target.value)}
         />
-        <Button variant="outlined" onClick={handleSubmit}>
+        <Button className="primary-button" onClick={handleSubmit}>
           Submit Ticket
         </Button>
-        <Button variant="outlined" disabled>
-          Upload Attachments (Disabled)
+        <Button className="secondary-button" disabled>
+          Upload Attachments (Future Work)
         </Button>
-        <Button variant="outlined" onClick={() => navigate('/')}>
+        <Button className="back-button" onClick={() => navigate('/')}>
           Back
         </Button>
         {modalOpen && (
@@ -76,9 +69,9 @@ function AppUser() {
           >
             <DialogTitle>Response Information</DialogTitle>
             <DialogContent>
-              <DialogContentText>
+              <Typography variant="h6" component="div" gutterBottom>
                 {responseInfo.ticket_answer_translated}
-              </DialogContentText>
+              </Typography>
             </DialogContent>
           </Dialog>
         )}
