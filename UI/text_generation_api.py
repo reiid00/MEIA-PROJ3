@@ -1,14 +1,10 @@
 
 from flask import Flask, request, jsonify
-import torch
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, pipeline
 import openai
-import random
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 app = Flask(__name__)
 # Set up OpenAI API credentials and create a GPT-2 model instance~
-API_KEY = None
+API_KEY = "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"
 openai.api_key = API_KEY
 model="gpt-3.5-turbo"
 
